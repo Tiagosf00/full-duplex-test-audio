@@ -14,15 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Reassemble wav from release chunks
+      - name: Reassemble wav from release assets via API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -f full_duplex_test.wav ] && [ $(stat -c%s full_duplex_test.wav) -gt 100000 ]; then
             echo "valid wav already present, skipping"
             exit 0
           fi
           rm -f full_duplex_test.wav part_*.bin
-          for i in $(seq -w 0 14); do
-            curl -fsSL -o "part_${i}.bin" "https://github.com/${{ github.repository }}/releases/download/v0.1/part_${i}.bin"
+          # List asset IDs for part_*.bin, download each via API (no redirect issues)
+          for id in $(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.1"               | python3 -c "import sys,json; [print(a['id']) for a in json.load(sys.stdin)['assets'] if a['name'].startswith('part_')]"); do
+            name=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/${{ github.repository }}/releases/assets/$id"               | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream"               -o "$name" "https://api.github.com/repos/${{ github.repository }}/releases/assets/$id"
+            echo "downloaded $name $(stat -c%s $name) bytes"
           done
           cat part_*.bin > full_duplex_test.wav
           rm part_*.bin
